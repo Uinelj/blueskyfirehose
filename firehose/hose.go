@@ -13,6 +13,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/redis/go-redis/v9"
+
 	"github.com/CharlesDardaman/blueskyfirehose/diskutil"
 	comatproto "github.com/bluesky-social/indigo/api/atproto"
 	appbsky "github.com/bluesky-social/indigo/api/bsky"
@@ -32,7 +34,7 @@ import (
 var log = logging.Logger("firehose")
 
 var authFile = "bsky.auth"
-
+var redis_ctx = context.Background()
 var Firehose = &cli.Command{
 	Name: "firehose",
 	Flags: []cli.Flag{
@@ -102,6 +104,12 @@ var Firehose = &cli.Command{
 			fmt.Println("Stream Exited", time.Now().Format(time.RFC3339))
 		}()
 
+		rdb := redis.NewClient(&redis.Options{
+			Addr:     "localhost:6379",
+			Password: "", // no password set
+			DB:       0,  // use default DB
+		})
+
 		go func() {
 			<-ctx.Done()
 			_ = con.Close()
@@ -124,7 +132,8 @@ var Firehose = &cli.Command{
 						ek := repomgr.EventKind(op.Action)
 						switch ek {
 						case repomgr.EvtKindCreateRecord, repomgr.EvtKindUpdateRecord:
-							//fmt.Println("got record", op.Path, op.Cid, op.Action, evt.Seq, evt.Repo)
+							// fmt.Println("got record", op.Path, op.Cid, op.Action, evt.Seq, evt.Repo)
+							// fmt.Println(op)
 							rc, rec, err := rr.GetRecord(ctx, op.Path)
 							if err != nil {
 								e := fmt.Errorf("getting record %s (%s) within seq %d for %s: %w", op.Path, *op.Cid, evt.Seq, evt.Repo, err)
@@ -155,7 +164,7 @@ var Firehose = &cli.Command{
 							}
 
 							var userProfile *appbsky.ActorDefs_ProfileViewDetailed
-							var replyUserProfile *appbsky.ActorDefs_ProfileViewDetailed
+							// var replyUserProfile *appbsky.ActorDefs_ProfileViewDetailed
 							if cctx.Bool("authed") {
 								userProfile, err = appbsky.ActorGetProfile(context.TODO(), xrpcc, evt.Repo)
 								if err != nil {
@@ -178,7 +187,7 @@ var Firehose = &cli.Command{
 
 								}
 								if pst.Reply != nil {
-									replyUserProfile, err = appbsky.ActorGetProfile(context.TODO(), xrpcc, strings.Split(pst.Reply.Parent.Uri, "/")[2])
+									_, err := appbsky.ActorGetProfile(context.TODO(), xrpcc, strings.Split(pst.Reply.Parent.Uri, "/")[2])
 									if err != nil {
 										fmt.Println(err)
 									}
@@ -189,7 +198,18 @@ var Firehose = &cli.Command{
 							//Handle if its a post
 							if pst.LexiconTypeID == "app.bsky.feed.post" {
 
-								PrintPost(cctx, pst, userProfile, replyUserProfile, nil, op.Path)
+								// fmt.Println("sending to redis")
+								// fmt.Println(pst)
+								post_json, err := json.Marshal(pst)
+								if err != nil {
+									fmt.Println(err)
+								}
+
+								err = rdb.Set(redis_ctx, op.Path, post_json, 0).Err() //TODO
+								if err != nil {
+									fmt.Println(err)
+								}
+								// PrintPost(cctx, pst, userProfile, replyUserProfile, nil, op.Path)
 
 							} else if pst.LexiconTypeID == "app.bsky.feed.like" && cctx.Bool("likes") {
 
@@ -371,6 +391,8 @@ func refreshSession(cctx *cli.Context) ([]byte, error) {
 }
 
 func PrintPost(cctx *cli.Context, pst appbsky.FeedPost, userProfile, replyUserProfile, likingUserProfile *appbsky.ActorDefs_ProfileViewDetailed, postPath string) {
+	fmt.Println(pst)
+
 	if userProfile != nil && userProfile.FollowersCount != nil {
 
 		//Try to use the display name and follower count if we can get it
