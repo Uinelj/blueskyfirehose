@@ -15,7 +15,7 @@ import (
 
 	"github.com/redis/go-redis/v9"
 
-	"github.com/CharlesDardaman/blueskyfirehose/diskutil"
+	"github.com/Uinelj/blueskyfirehose/diskutil"
 	comatproto "github.com/bluesky-social/indigo/api/atproto"
 	appbsky "github.com/bluesky-social/indigo/api/bsky"
 	"github.com/bluesky-social/indigo/api/label"
@@ -205,7 +205,12 @@ var Firehose = &cli.Command{
 									fmt.Println(err)
 								}
 
-								err = rdb.Set(redis_ctx, op.Path, post_json, 0).Err() //TODO
+								// err = rdb.Set(redis_ctx, op.Path, post_json, 0).Err() //TODO
+								_, err = rdb.XAdd(redis_ctx, &redis.XAddArgs{
+									Stream: "posts",
+									ID:     "*",
+									Values: []interface{}{op.Path, post_json},
+								}).Result()
 								if err != nil {
 									fmt.Println(err)
 								}

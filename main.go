@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/CharlesDardaman/blueskyfirehose/firehose"
+	"github.com/Uinelj/blueskyfirehose/firehose"
 	cli "github.com/urfave/cli/v2"
 )
 
